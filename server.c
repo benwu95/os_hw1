@@ -2,69 +2,133 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
-#include <sys/un.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <arpa/inet.h>
 #include <unistd.h>
+#include <dirent.h>
 
-/* Read text from the socket and print it out. Continue until the
- * socket closes. Return nonzero if the client sent a “quit”
- * message, zero otherwise. */
+#define BUF 10000
 
-int server (int clientSocket) {
-    while (1) {
-        int length;
-        char* text;
-        
-        /* First, read the length of the text message from the socket. If
-         * read returns zero, the client closed the connection. */
-        if (read(clientSocket, &length, sizeof(length)) == 0)
-            return 0;
-        /* Allocate a buffer to hold the text. */
-        text = (char*) malloc (length);
-        /* Read the text itself, and print it. */
-        read(clientSocket, text, length);
-        printf("%s\n", text);
-        /* Free the buffer. */
-        free(text);
-        /* If the client sent the message "quit"
-         * we're all done.*/
-        if (!strcmp(text, "quit"))
-            return 1;
+int createServer(int &socketFd, struct sockaddr_in &server, int port) {
+    /* Create a socket. */
+    socketFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (socketFd == -1) {
+        puts("Could not create socket!");
+        return 1;
+    }
+    /* Set the socket. */
+    server.sin_addr.s_addr = htonl(INADDR_ANY);
+    server.sin_family = AF_INET;
+    server.sin_port = htons(port);
+    /* Bind socket to a port. */
+    if (bind(socketFd, (struct sockaddr*)&server, sizeof(server)) < 0) {
+        puts("Bind failed!");
+        return 1;
+    }
+    return 0;
+}
+
+int createFile(char* fileName) {
+    FILE* fp;
+    struct stat fileStat;
+    /* Check file. */
+    if (stat(fileName, &fileStat) < 0)
+        return 1;
+    /* Create file. */
+    fp = fopen(fileName, "w");
+    fclose(fp);
+    return 0;
+}
+
+int deleteFile(char* fileName) {
+    FILE* fp;
+    struct stat fileStat;
+    /* Check file. */
+    if (stat(fileName, &fileStat) < 0)
+        return 1;
+    /* Delete file. */
+    if (remove(fileName) != 0)
+        perror("Delete failed!");
+    return 0;
+}
+
+void listFile() {
+    DIR *d;
+    struct dirent *dir;
+    d = opendir(".");
+    if (d) {
+        while ((dir = readdir(d)) != NULL)
+            printf("%s\n", dir->d_name);
+        closedir(d);
     }
 }
 
-int main (int argc, char* const argv[]) {
-    const char* const socketName = argv[1];
-    int socketFd;
-    struct sockaddr_un name;
-    int clientSentQuitMessage;
+int editFile(char* fileName, int tmpSocket) {
+    FILE* fp;
+    struct stat fileStat;
+    char* buf = (char*) malloc (sizeof(char) * BUF);
+    int bytes;
+    /* Check file. */
+    if (stat(fileName, &fileStat) < 0)
+        return 1;
+    fp = fopen(fileName, "a");
+    
+    fclose(fp);
+    free(buf);
+    return 0;
+}
 
-    /* Create the socket. */
-    socketFd = socket(PF_LOCAL, SOCK_STREAM, 0);
-    /* Indicate that is a server. */
-    name.sun_family = AF_LOCAL;
-    strcpy(name.sun_path, socketName);
-    bind(socketFd, &name, SUN_LEN(&name));
-    /* Listen for connections. */
-    listen(socketFd, 5);
-    /* Repeatedly accept connections, spinning off one server() to deal
-     * with each client. Continue until a client sends a “quit” message. */
-    do {
-        struct sockaddr_un clientName;
-        socklen_t clientNameLen;
-        int clientSocketFd;
-
-        /* Accept a connection. */
-        clientSocketFd = accept(socketFd, &clientName, &clientNameLen);
-        /* Handle the connection. */
-        slientSentQuitMessage = server(clientSocketFd);
-        /* Close our end of the connection. */
-        close(clientSocketFd);
+int DownloadFile(char* fileName, int tmpSocket) {
+    FILE* fp;
+    struct stat fileStat;
+    char* buf = (char*) malloc (sizeof(char) * BUF);
+    int bytes;
+    /* Check file. */
+    if (stat(fileName, &fileStat) < 0)
+        return 1;
+    printf("File Size: \t%d bytes\n", fileStat.st_size);
+    fp = fopen(fileName, "rb");
+    /* Send file. */
+    while (!feof(fp)) {
+        bytes = fread(buf, sizeof(char), sizeof(buf), fp);
+        printf("fread %d bytes, ", bytes);
+        bytes = write(tmpSocket, buf, bytes);
+        printf("Sending %d bytes\n", bytes);
     }
-    while (!ClientSentQuitMessage);
+    fclose(fp);
+    free(buf);
+    return 0;
+}
 
-    /* Remove the socket file. */
+int main(int argc, char* argv[]) {
+    int socketFd;
+    struct sockaddr_in server;
+    int port = atoi(argv[1]);
+
+    /* Start the server. */
+    if (createServer(socketFd, server, port)) {
+        return 0;
+    } else {
+        /* Listen. */
+        listen(socketFD, 5);
+        while (1) {
+            int clientSocket;
+            struct sockaddr_in client;
+            socklen_t length = sizeof(clientSocket);
+            int tmpSocket = accept(socketFd, (struct sockaddr*)&client,
+                                    &length);
+            if (tmpSocket < 0) {
+                puts("Server accept failed!");
+                break;
+            }
+            
+            
+            
+            close(tmpSocket);
+        }
+    }
     close(socketFd);
-    unlink(socketName);
-
     return 0;
 }
